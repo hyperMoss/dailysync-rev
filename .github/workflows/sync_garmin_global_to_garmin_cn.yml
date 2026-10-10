@@ -75,7 +75,7 @@ jobs:
       - name: Sync Garmin
         env:
           SYNC_COMMAND: ${{ github.event.inputs.sync_command || 'sync_global' }}
-        run: yarn \"$SYNC_COMMAND\"
+        run: yarn "$SYNC_COMMAND"
         timeout-minutes: 15
       - uses: ./.github/actions/garmin-state
         if: ${{ !cancelled() && steps.state.outcome == 'success' }}

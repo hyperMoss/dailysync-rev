@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: '22'
           cache: 'yarn'
+      - name: Check workflow shell commands
+        run: node .github/scripts/check-workflow-commands.cjs
       - run: yarn --frozen-lockfile
       - run: npx tsc --noEmit
 

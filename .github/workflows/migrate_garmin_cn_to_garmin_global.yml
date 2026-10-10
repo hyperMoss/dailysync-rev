@@ -72,7 +72,7 @@ jobs:
       - name: Migrate Garmin
         env:
           MIGRATE_COMMAND: ${{ github.event.inputs.migrate_command || 'migrate_garmin_cn_to_global' }}
-        run: yarn \"$MIGRATE_COMMAND\"
+        run: yarn "$MIGRATE_COMMAND"
       - uses: ./.github/actions/garmin-state
         if: ${{ !cancelled() && steps.state.outcome == 'success' }}
         with:
