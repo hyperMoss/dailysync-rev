@@ -1,0 +1,83 @@
+name: Sync Garmin Global to Garmin CN
+
+on:
+  workflow_dispatch:
+    inputs:
+      sync_command:
+        description: "同步命令：普通 sync 只同步活动；sync_all 同步活动+Wellness；sync_wellness 只同步 Wellness"
+        required: true
+        default: "sync_global"
+        type: choice
+        options:
+          - sync_global
+          - sync_all_global_to_cn
+          - sync_wellness_global_to_cn
+          - sync_cn
+          - sync_all_cn_to_global
+          - sync_wellness_cn_to_global
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garmin-state
+  cancel-in-progress: false
+
+env:
+  AESKEY: ${{ secrets.AESKEY }}
+  GARMIN_CN_OAUTH1: ${{ secrets.GARMIN_CN_OAUTH1 }}
+  GARMIN_CN_OAUTH2: ${{ secrets.GARMIN_CN_OAUTH2 }}
+  GARMIN_GLOBAL_OAUTH1: ${{ secrets.GARMIN_GLOBAL_OAUTH1 }}
+  GARMIN_GLOBAL_OAUTH2: ${{ secrets.GARMIN_GLOBAL_OAUTH2 }}
+  # please change to your own config.
+  RQ_COOKIE: ${{ secrets.RQ_COOKIE }}
+  RQ_CSRF_TOKEN: ${{ secrets.RQ_CSRF_TOKEN }}
+  RQ_USERID: ${{ secrets.RQ_USERID }}
+  GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+  GOOGLE_API_CLIENT_EMAIL: ${{ secrets.GOOGLE_API_CLIENT_EMAIL }}
+  GOOGLE_API_PRIVATE_KEY: ${{ secrets.GOOGLE_API_PRIVATE_KEY }}
+  BARK_KEY: ${{ secrets.BARK_KEY }}
+  GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+  GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+  GARMIN_GLOBAL_USERNAME: ${{ secrets.GARMIN_GLOBAL_USERNAME }}
+  GARMIN_GLOBAL_PASSWORD: ${{ secrets.GARMIN_GLOBAL_PASSWORD }}
+  # Wellness 健康数据默认关闭；需要同步步数、睡眠、HRV、压力等数据时，在 Variables 中设置 GARMIN_SYNC_WELLNESS=true
+  GARMIN_SYNC_WELLNESS: ${{ vars.GARMIN_SYNC_WELLNESS || secrets.GARMIN_SYNC_WELLNESS }}
+  # 日常同步时检查最近几天的健康数据；未配置时默认为 1
+  GARMIN_WELLNESS_SYNC_DAYS: ${{ vars.GARMIN_WELLNESS_SYNC_DAYS || secrets.GARMIN_WELLNESS_SYNC_DAYS }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Sync Garmin Global to Garmin CN
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required secrets
+        shell: bash
+        run: |
+          missing=0
+          for name in GARMIN_USERNAME GARMIN_PASSWORD GARMIN_GLOBAL_USERNAME GARMIN_GLOBAL_PASSWORD AESKEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Please add repository secret $name in Settings > Secrets and variables > Actions"
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "yarn"
+      - run: yarn --frozen-lockfile
+      - uses: ./.github/actions/garmin-state
+        id: state
+        with:
+          mode: restore
+      - name: Sync Garmin
+        env:
+          SYNC_COMMAND: ${{ github.event.inputs.sync_command || 'sync_global' }}
+        run: yarn \"$SYNC_COMMAND\"
+        timeout-minutes: 15
+      - uses: ./.github/actions/garmin-state
+        if: ${{ !cancelled() && steps.state.outcome == 'success' }}
+        with:
+          mode: save

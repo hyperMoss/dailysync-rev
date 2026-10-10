@@ -1,0 +1,24 @@
+name: Encrypted Garmin state
+description: Restore or save an encrypted session database in Actions cache
+inputs:
+  mode:
+    description: restore or save
+    required: true
+runs:
+  using: composite
+  steps:
+    - if: inputs.mode == 'restore'
+      uses: actions/cache/restore@v4
+      with:
+        path: .garmin-state.enc
+        key: garmin-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: garmin-state-v1-
+    - shell: bash
+      env:
+        STATE_MODE: ${{ inputs.mode }}
+      run: node .github/scripts/garmin-state.cjs "$STATE_MODE"
+    - if: inputs.mode == 'save'
+      uses: actions/cache/save@v4
+      with:
+        path: .garmin-state.enc
+        key: garmin-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
