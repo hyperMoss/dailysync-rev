@@ -20,7 +20,88 @@
 
 会话和同步游标使用 `AESKEY` 加密后保存在 Actions cache，数据库不提交到代码仓库。缓存被清理后会重新登录；如果更换 `AESKEY`，先在 Actions → Caches 删除旧的 `garmin-state-v1-` 缓存。
 
-若 GitHub runner 密码登录遇到 429，可在可信本地机器成功登录后自行导出并填写四个可选会话 Secrets：`GARMIN_CN_OAUTH1`、`GARMIN_CN_OAUTH2`、`GARMIN_GLOBAL_OAUTH1`、`GARMIN_GLOBAL_OAUTH2`。它们是敏感登录令牌，只能放 Secrets；有效会话能否正常使用仍需实际运行验证。
+若 GitHub runner 密码登录遇到 429，可在可信本地机器成功登录后，按下方教程导出并填写四个可选会话 Secrets。有效会话能否在 GitHub runner 上正常使用仍需实际运行验证。
+
+### 导出 OAuth 会话令牌并配置 GitHub Secrets
+
+导出命令读取本地 `db/garmin.db` 中已保存的登录会话。请在自己的可信电脑上操作，终端输出包含可用于登录账号的令牌，不要分享截图、提交到仓库或粘贴到公开日志中。账号和密码 Secrets 仍需保留。
+
+#### 1. 准备本地账号配置
+
+在项目根目录（`README.md` 所在目录）打开终端，按“本地运行方案”准备 Node.js 和 Yarn，然后安装依赖：
+
+```shell
+yarn --frozen-lockfile
+```
+
+如果还没有 `.env`，复制模板；已有 `.env` 时直接编辑，保留原配置：
+
+```shell
+cp .env.example .env
+```
+
+在 `.env` 中填写两区账号密码，示例值请替换成自己的信息：
+
+```dotenv
+GARMIN_USERNAME=your-cn-account@example.com
+GARMIN_PASSWORD=your-cn-password
+GARMIN_GLOBAL_USERNAME=your-global-account@example.com
+GARMIN_GLOBAL_PASSWORD=your-global-password
+```
+
+已有本地会话时，保持原来的账号和本地 `AESKEY` 配置，避免无法查到或解密会话。GitHub 的 `AESKEY` 用于 runner 上的数据库与缓存加密，无需为了导出而修改现有本地密钥。
+
+#### 2. 在本地登录并保存会话
+
+如果这台电脑已经成功运行过同步，可以直接执行第 3 步。否则运行：
+
+```shell
+yarn sync_cn
+```
+
+这条命令会登录中国区和国际区，并执行中国区 → 国际区的活动同步。两区均登录成功后，会话会保存到本地数据库；即使没有新增活动，也可以导出。若本地登录失败，需要先解决该登录问题，导出命令本身不会登录或生成新的令牌。
+
+#### 3. 导出四个会话对象
+
+在同一个项目根目录运行：
+
+```shell
+yarn export_garmin_sessions
+```
+
+终端会按以下格式输出四行（下方全部是示例，实际输出中的字段和值应完整保留）：
+
+```text
+GARMIN_CN_OAUTH1={"oauth_token":"<国区实际值>","oauth_token_secret":"<国区实际值>"}
+GARMIN_CN_OAUTH2={"access_token":"<国区实际值>","refresh_token":"<国区实际值>","expires_at":1234567890,"其他字段":"请保留实际输出"}
+GARMIN_GLOBAL_OAUTH1={"oauth_token":"<国际区实际值>","oauth_token_secret":"<国际区实际值>"}
+GARMIN_GLOBAL_OAUTH2={"access_token":"<国际区实际值>","refresh_token":"<国际区实际值>","expires_at":1234567890,"其他字段":"请保留实际输出"}
+```
+
+OAuth1 和 OAuth2 都是 JSON 对象。OAuth2 可能还包含 `token_type`、`expires_in`、`refresh_token_expires_at` 等字段，复制实际输出的完整对象，不要按示例删改字段或时间戳。如果只输出一个区域的两行，说明另一区域没有对应的已保存会话，需要确认两区本地登录都已成功。
+
+#### 4. 填入 Secrets 并验证同步
+
+打开 [Actions Secrets 设置](https://github.com/hyperMoss/dailysync-rev/settings/secrets/actions)，点击 **New repository secret**，分别创建以下四项；如果已经存在，编辑对应 Secret 的值：
+
+| Name | Secret 内容 |
+|---|---|
+| `GARMIN_CN_OAUTH1` | 对应输出行等号右侧的完整中国区 OAuth1 JSON |
+| `GARMIN_CN_OAUTH2` | 对应输出行等号右侧的完整中国区 OAuth2 JSON |
+| `GARMIN_GLOBAL_OAUTH1` | 对应输出行等号右侧的完整国际区 OAuth1 JSON |
+| `GARMIN_GLOBAL_OAUTH2` | 对应输出行等号右侧的完整国际区 OAuth2 JSON |
+
+例如 `GARMIN_CN_OAUTH1` 的 Secret 值应为：
+
+```json
+{"oauth_token":"<实际值>","oauth_token_secret":"<实际值>"}
+```
+
+仅复制等号右侧内容，包括最外层 `{}`；不要复制 `GARMIN_CN_OAUTH1=`，不要在整个 JSON 外再包一层引号或复制 Markdown 代码围栏。四项应放在 **Secrets** 中。
+
+保存后打开 [Sync Garmin CN to Garmin Global](https://github.com/hyperMoss/dailysync-rev/actions/workflows/sync_garmin_cn_to_garmin_global.yml)，点击 **Run workflow**，分支选择 `main`，命令选择 `sync_cn`。日志中的 `GarminCN: login by env session` 和 `GarminGlobal: login by env session` 表示会话已被读取；还需确认两区登录及同步步骤成功。`没有要同步的活动内容` 表示本次检查没有发现需要新增同步的活动。
+
+当前代码优先读取 Secrets 中的会话。若会话失效，需要在本地重新成功登录、导出，并更新对应区域的两项 Secrets。格式能被解析并不代表会话仍然有效，网络错误也不能仅靠更新令牌解决。
 
 
 
@@ -34,8 +115,8 @@
 
 
 [![](https://img.shields.io/badge/-Telegram-%2326A5E4?style=flat-square&logo=telegram&logoColor=ffffff)](https://t.me/garmindailysync)
-## 【2026-6说明】github actions 新fork的无法使用了。
-佳明做了限制，对github actions方式运行会出现429限制登录的情况，目前无法解决，推荐让claude或者其他agent将本项目拉到本地去运行。
+## 【2026-6上游提醒】GitHub Actions 密码登录可能受限
+佳明对 GitHub runner 的密码登录可能返回 429 限流。本仓库支持先在可信本地机器登录，再按上方“导出 OAuth 会话令牌并配置 GitHub Secrets”教程导入会话；是否可用仍需实际运行验证。若仍无法登录，可改为本地运行。
 
 ## 【2025-12说明】开启了ECG功能的说明
 开通了ECG功能的佳明账号，因为登录佳明时需要提供验证码，开通ECG后，这个验证码无法关闭，github上要中途要输入一次验证码，本同步脚本无法支持，下方的Web版本做了兼容，可以使用。 
